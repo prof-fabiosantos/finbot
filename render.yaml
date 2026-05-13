@@ -1,5 +1,5 @@
 services:
-  - type: worker
+  - type: web
     name: finbot-telegram
     runtime: python
     plan: free
@@ -12,3 +12,5 @@ services:
         sync: false
       - key: DATABASE_URL
         value: sqlite:///finbot.db
+      - key: PORT
+        value: 10000

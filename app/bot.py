@@ -2,7 +2,9 @@
 Bot do Telegram — handlers de comandos e mensagens.
 """
 import os
+import asyncio
 import logging
+from aiohttp import web
 from dotenv import load_dotenv
 from telegram import Update
 from telegram.constants import ParseMode
@@ -151,9 +153,27 @@ async def handle_message(update: Update, _: ContextTypes.DEFAULT_TYPE):
 
 # ------------------------- Bootstrap -------------------------
 
-def main():
-    init_db()
+async def health(_request):
+    """Endpoint de health check — o Render só pede que algo responda na porta HTTP."""
+    return web.Response(text="FinBot is running")
 
+
+async def start_web_server():
+    """Sobe um servidor HTTP mínimo na porta exigida pelo Render (PORT env var)."""
+    port = int(os.getenv("PORT", "10000"))
+    app = web.Application()
+    app.router.add_get("/", health)
+    app.router.add_get("/health", health)
+
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, "0.0.0.0", port)
+    await site.start()
+    logger.info(f"Servidor HTTP escutando na porta {port}")
+
+
+async def run_bot():
+    """Inicializa e roda o bot do Telegram via long polling."""
     token = os.getenv("TELEGRAM_TOKEN")
     if not token:
         raise RuntimeError("TELEGRAM_TOKEN não definido")
@@ -168,7 +188,30 @@ def main():
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
     logger.info("Bot iniciado. Aguardando mensagens...")
-    app.run_polling(allowed_updates=Update.ALL_TYPES)
+
+    # initialize/start/updater são o ciclo manual quando rodamos junto com outra task asyncio
+    await app.initialize()
+    await app.start()
+    await app.updater.start_polling(allowed_updates=Update.ALL_TYPES)
+
+    # Mantém rodando até receber sinal de parada
+    stop_event = asyncio.Event()
+    try:
+        await stop_event.wait()
+    finally:
+        await app.updater.stop()
+        await app.stop()
+        await app.shutdown()
+
+
+async def main_async():
+    init_db()
+    await start_web_server()
+    await run_bot()
+
+
+def main():
+    asyncio.run(main_async())
 
 
 if __name__ == "__main__":
