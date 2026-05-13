@@ -1,0 +1,18 @@
+services:
+  - type: worker
+    name: finbot-telegram
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: python main.py
+    envVars:
+      - key: TELEGRAM_TOKEN
+        sync: false  # adicione manualmente no painel do Render
+      - key: GROQ_API_KEY
+        sync: false
+      - key: DATABASE_URL
+        value: sqlite:////var/data/finbot.db
+    disk:
+      name: finbot-data
+      mountPath: /var/data
+      sizeGB: 1
