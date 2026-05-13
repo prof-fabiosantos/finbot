@@ -11,8 +11,4 @@ services:
       - key: GROQ_API_KEY
         sync: false
       - key: DATABASE_URL
-        value: sqlite:////var/data/finbot.db
-    disk:
-      name: finbot-data
-      mountPath: /var/data
-      sizeGB: 1
+        value: sqlite:///finbot.db
