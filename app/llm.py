@@ -9,7 +9,20 @@ from groq import Groq
 
 logger = logging.getLogger(__name__)
 
-client = Groq(api_key=os.getenv("GROQ_API_KEY"))
+# Cliente é criado sob demanda (lazy) pra evitar erro no import
+# caso a env var ainda não esteja carregada.
+_client = None
+
+
+def get_client() -> Groq:
+    global _client
+    if _client is None:
+        api_key = os.getenv("GROQ_API_KEY")
+        if not api_key:
+            raise RuntimeError("GROQ_API_KEY não definida no ambiente")
+        _client = Groq(api_key=api_key)
+    return _client
+
 
 MODEL = "llama-3.3-70b-versatile"
 
@@ -46,7 +59,7 @@ def extract_expense(message: str) -> dict:
     Em caso de erro, retorna {"tipo": "erro", "motivo": "..."}.
     """
     try:
-        resp = client.chat.completions.create(
+        resp = get_client().chat.completions.create(
             model=MODEL,
             messages=[
                 {"role": "system", "content": SYSTEM_PROMPT},

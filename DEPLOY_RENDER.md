@@ -1,6 +1,8 @@
-# 🚀 Deploy do FinBot no Render
+# 🚀 Deploy do FinBot no Render (Plano Free)
 
-Guia completo do zero ao bot rodando em produção. Tempo estimado: **15 minutos**.
+Guia completo do zero ao bot rodando em produção, **100% gratuito**. Tempo estimado: **15-20 minutos**.
+
+> ℹ️ Este guia já considera as restrições atuais do plano free do Render: **Background Workers e Persistent Disks são pagos**. Por isso usamos **Web Service** (gratuito) com um servidor HTTP mínimo que satisfaz a exigência do Render.
 
 ---
 
@@ -39,7 +41,7 @@ Antes de começar, tenha em mãos:
 3. Clique em **Create API Key**, dê um nome (ex: "finbot") e confirme.
 4. Copie a chave (começa com `gsk_...`). **Ela só aparece uma vez.**
 
-> 💡 O tier gratuito do Groq dá mais que o suficiente para uso pessoal: milhares de requisições por dia com Llama 3.3 70B.
+> 💡 O tier gratuito do Groq é generoso: milhares de requisições por dia com Llama 3.3 70B. Mais que suficiente para uso pessoal.
 
 ---
 
@@ -63,7 +65,7 @@ git remote add origin https://github.com/SEU_USUARIO/finbot.git
 git push -u origin main
 ```
 
-> ⚠️ **Confirme que o `.env` NÃO foi enviado.** O `.gitignore` do projeto já protege isso, mas verifique no GitHub se o arquivo não está lá. Se aparecer, remova o repositório e refaça com o `.gitignore` correto.
+> ⚠️ **Confirme que o `.env` NÃO foi enviado.** O `.gitignore` do projeto já protege isso. Pra ter certeza, rode `git status` antes do commit — `.env` não deve aparecer na lista.
 
 ---
 
@@ -75,12 +77,13 @@ git push -u origin main
 4. Autorize o Render a acessar seu repositório `finbot`.
 5. Selecione o repositório `finbot` na lista e clique em **Connect**.
 
-O Render lê automaticamente o arquivo `render.yaml` do projeto e mostra os recursos que vai criar:
+O Render lê o arquivo `render.yaml` do projeto e mostra o recurso que vai criar:
 
-- ✅ Um **Background Worker** chamado `finbot-telegram`
-- ✅ Um **Persistent Disk** de 1GB montado em `/var/data` (para o SQLite sobreviver entre deploys)
+- ✅ Um **Web Service** chamado `finbot-telegram` (plano free)
 
 Clique em **Apply** para confirmar.
+
+> 💡 **Por que Web Service e não Background Worker?** No plano free do Render, Background Workers viraram recurso pago. Web Services continuam gratuitos, mas exigem que o app responda em uma porta HTTP. O FinBot resolve isso subindo um endpoint `/health` minúsculo em paralelo com o bot — você nem precisa pensar nisso, já está configurado.
 
 ---
 
@@ -95,7 +98,7 @@ O Render vai criar o serviço, mas **vai falhar na primeira inicialização** po
    - `GROQ_API_KEY` → a chave do Groq (passo 2)
 4. Clique em **Save Changes**.
 
-A variável `DATABASE_URL` já vem configurada automaticamente para `sqlite:////var/data/finbot.db` (no disk persistente).
+As variáveis `DATABASE_URL` e `PORT` já vêm configuradas automaticamente pelo `render.yaml`.
 
 ---
 
@@ -109,9 +112,13 @@ Depois de salvar as variáveis, o Render reinicia o serviço automaticamente.
    ==> Cloning from https://github.com/...
    ==> Installing dependencies...
    ==> Running 'python main.py'
+   INFO - Servidor HTTP escutando na porta 10000
    INFO - Bot iniciado. Aguardando mensagens...
+   ==> Your service is live 🎉
    ```
-3. Se aparecer **"Bot iniciado. Aguardando mensagens..."**, está no ar! 🎉
+3. Quando aparecer **"Your service is live"** e **"Bot iniciado"**, está tudo no ar.
+
+O Render também mostra uma URL pública do serviço (algo como `https://finbot-telegram-xxxx.onrender.com`). Acessa ela no navegador — deve aparecer a mensagem `FinBot is running`. Essa URL é o health check e vai ser usada no passo 8.
 
 ---
 
@@ -131,32 +138,56 @@ Depois de salvar as variáveis, o Render reinicia o serviço automaticamente.
    - `/recentes` — últimos 10 gastos
    - `/desfazer` — remove o último registro
 
+Se o bot responder, **deploy concluído** 🎉
+
 ---
 
-## Limitações do plano gratuito do Render
+## Passo 8 — Manter o bot acordado (IMPORTANTE)
 
-| Recurso | Plano Free |
-|---|---|
-| Horas de Worker/mês | 750h (suficiente pra rodar 24/7 um único serviço) |
-| Hibernação | Workers podem hibernar após inatividade prolongada |
-| Disk persistente | Incluído no `render.yaml` (1GB) |
-| Build minutes | 500/mês |
+O Web Service gratuito do Render tem um comportamento chato: **hiberna após 15 minutos sem requisições HTTP**. Quando dorme, o bot para de responder no Telegram até alguém acessar a URL e "acordá-lo".
 
-> ⚠️ **Sobre hibernação:** Background Workers no plano free podem ficar inativos se não houver atividade. Quando você manda a primeira mensagem após um tempo, o bot pode demorar **20-40 segundos** pra responder enquanto "acorda". Depois disso fica responsivo normalmente.
+A solução é fazer um **ping automático** na URL do bot a cada poucos minutos. O serviço gratuito mais usado pra isso é o **UptimeRobot**.
 
-**Se a hibernação incomodar**, alternativas gratuitas:
-- **Fly.io** — tier free generoso, sem hibernação agressiva
-- **Oracle Cloud Free Tier** — VM grátis pra sempre (4 vCPU ARM, 24GB RAM)
-- **Seu próprio PC/Raspberry Pi** — `nohup python main.py &` e pronto
+### Configurando o UptimeRobot
+
+1. Crie uma conta gratuita em [uptimerobot.com](https://uptimerobot.com).
+2. No dashboard, clique em **+ New monitor**.
+3. Preencha:
+   - **Monitor Type:** `HTTP(s)`
+   - **Friendly Name:** `FinBot Render`
+   - **URL:** a URL pública do seu serviço no Render (ex: `https://finbot-telegram-xxxx.onrender.com/health`)
+   - **Monitoring Interval:** `5 minutes` (mínimo do plano free)
+4. Clique em **Create Monitor**.
+
+Pronto. O UptimeRobot vai pingar seu bot a cada 5 minutos, mantendo-o acordado 24/7. Como bônus, ele te avisa por e-mail se o serviço cair.
+
+> 💡 **Alternativas ao UptimeRobot:** [cron-job.org](https://cron-job.org), [Better Stack](https://betterstack.com), ou o próprio [GitHub Actions](https://docs.github.com/en/actions/using-workflows/events-that-trigger-workflows#schedule) com um workflow agendado.
+
+---
+
+## ⚠️ Limitação importante: dados são perdidos a cada deploy
+
+Como o plano free **não permite disk persistente**, o arquivo `finbot.db` é recriado a cada deploy ou reinício do serviço. Ou seja:
+
+- ❌ Se você fizer `git push` com uma atualização → dados perdidos
+- ❌ Se o Render reiniciar o serviço por manutenção → dados perdidos
+- ✅ Durante operação normal (sem reinício) → dados persistem
+
+**Pra um MVP de testes, isso é ok.** Quando quiser usar de verdade, migre pra um banco gratuito externo:
+
+- **[Supabase](https://supabase.com)** — Postgres com 500MB grátis
+- **[Neon](https://neon.tech)** — Postgres com 0.5GB grátis
+- **[Turso](https://turso.tech)** — SQLite distribuído com 9GB grátis
+
+A migração é simples: cria o banco, copia a connection string, troca `DATABASE_URL` no Render. **Nenhuma linha de código muda** — o SQLAlchemy detecta o tipo de banco automaticamente.
 
 ---
 
 ## Atualizando o bot
 
-Sempre que você fizer um `git push` para a branch `main`, o Render detecta e faz redeploy automático. Os dados no SQLite ficam preservados porque estão no disk persistente.
+Sempre que fizer `git push` para a branch `main`, o Render detecta e faz redeploy automático.
 
 ```bash
-# Após editar o código
 git add .
 git commit -m "Adicionando nova feature"
 git push
@@ -164,31 +195,49 @@ git push
 
 Acompanhe o redeploy em **Logs** no dashboard.
 
+> ⚠️ Lembrando: cada deploy zera o banco SQLite. Se já estiver com dados importantes, migre pro Postgres antes (Supabase/Neon).
+
 ---
 
 ## Troubleshooting
 
 ### "Bot não responde no Telegram"
 - Verifique os **Logs** no Render. Procure por erros.
-- Confirme que `TELEGRAM_TOKEN` está correto (sem espaços).
+- Confirme que `TELEGRAM_TOKEN` está correto (sem espaços extras).
 - Teste o token: acesse `https://api.telegram.org/botSEU_TOKEN/getMe` no navegador. Deve retornar dados do bot.
+- Se o serviço estiver hibernando, configure o UptimeRobot (passo 8).
 
 ### "Erro 401 do Groq nos logs"
-- A `GROQ_API_KEY` está errada ou expirada. Gere uma nova em console.groq.com.
+- A `GROQ_API_KEY` está errada ou expirada. Gere uma nova em console.groq.com e atualize a env var no Render.
 
-### "Bot duplica respostas"
-- Você tem **duas instâncias rodando** (provavelmente uma local + Render). O Telegram só permite uma conexão de polling por bot. Pare a instância local.
+### "Bot duplica respostas / responde 2x cada mensagem"
+- Você tem **duas instâncias rodando** (provavelmente uma local + Render). O Telegram só permite uma conexão de polling por bot. Pare a instância local com `Ctrl+C` ou desligue uma das duas.
 
-### "Disk full"
-- 1GB do plano free é mais que suficiente pra anos de uso. Se ainda assim encher, edite `render.yaml` aumentando `sizeGB` (vira plano pago).
+### "Address already in use" nos logs
+- A variável `PORT` está com valor inválido ou tem duas instâncias do bot no mesmo serviço. Verifique no painel **Environment** se `PORT` está definida como `10000`.
 
-### Logs mostram "ImportError" ou erro de dependência
-- O `requirements.txt` está incompleto. Confirme que ele tem as 4 linhas do projeto e refaça o push.
+### "service type is not available for this plan"
+- O `render.yaml` está com `type: worker`. Confirme que está como `type: web` (já corrigido neste projeto).
+
+### "disks are not supported for free tier services"
+- O `render.yaml` ainda tem um bloco `disk:`. Remova-o (já removido neste projeto).
+
+### Bot fica lento na primeira mensagem após um tempo
+- Está hibernando. Configure o UptimeRobot (passo 8) e o problema some.
 
 ---
 
 ## Pronto!
 
-Seu bot agora roda 24/7 na nuvem, gratuitamente. Os dados ficam salvos no disk persistente do Render — mesmo redeploys não apagam o histórico.
+Seu bot agora roda 24/7 na nuvem, gratuitamente. Resumo da arquitetura:
+
+```
+Telegram → long polling → FinBot (Render Web Service)
+                              ├─ Servidor HTTP /health (Render exige)
+                              ├─ Groq API (Llama 3.3 70B)
+                              └─ SQLite local (efêmero)
+
+UptimeRobot → ping /health a cada 5min → mantém serviço acordado
+```
 
 Se quiser evoluir o projeto, dá uma olhada na seção "Próximos passos sugeridos" do `README.md`.
