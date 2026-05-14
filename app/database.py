@@ -1,5 +1,5 @@
 """
-Banco de dados: SQLAlchemy + SQLite.
+Banco de dados: SQLAlchemy + SQLite (dev local) ou Postgres (produção).
 Define o modelo Expense e a engine compartilhada.
 """
 import os
@@ -9,11 +9,24 @@ from sqlalchemy.orm import declarative_base, sessionmaker
 
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///finbot.db")
 
-# check_same_thread=False é necessário porque o bot usa múltiplas threads
-engine = create_engine(
-    DATABASE_URL,
-    connect_args={"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {},
-)
+# Supabase/Heroku/Render às vezes entregam a URL como "postgres://",
+# mas SQLAlchemy moderno exige "postgresql://".
+if DATABASE_URL.startswith("postgres://"):
+    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
+
+# Configurações específicas por tipo de banco
+if DATABASE_URL.startswith("sqlite"):
+    # check_same_thread=False só é válido (e necessário) pra SQLite com múltiplas threads
+    connect_args = {"check_same_thread": False}
+    engine_kwargs = {"connect_args": connect_args}
+else:
+    # Postgres: usa pool com pre_ping pra evitar conexões mortas após hibernação do Render
+    engine_kwargs = {
+        "pool_pre_ping": True,  # testa a conexão antes de usar
+        "pool_recycle": 300,    # recicla conexões a cada 5 min
+    }
+
+engine = create_engine(DATABASE_URL, **engine_kwargs)
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
 Base = declarative_base()
 
